@@ -1,0 +1,16 @@
+{
+  "name": "gmail_node",
+  "version": "1.0.0",
+  "description": "Test for gmail and node",
+  "main": "app.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "Paul Mooney",
+  "license": "ISC",
+  "dependencies": {
+    "google-auth-library": "^0.9.7",
+    "googleapis": "^5.2.1",
+    "q": "^1.4.1"
+  }
+}
