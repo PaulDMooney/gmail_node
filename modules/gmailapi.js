@@ -23,15 +23,11 @@ class GmailAPI {
 	 *
 	 * @param {Object} credentials The authorization client credentials.
 	 * @param {function} callback The callback to call with the authorized client.
+	 * @return {Object} Promise which tries to resolve to a populated auth.OAuth2 object
 	 */
 	authorize(credentials) {
-	  var clientSecret = credentials.installed.client_secret;
-	  var clientId = credentials.installed.client_id;
-	  var redirectUrl = credentials.installed.redirect_uris[0];
-	  var auth = new googleAuth();
-	  var oauth2Client = new auth.OAuth2(clientId, clientSecret, redirectUrl);
 
-	  var parent = this;
+	  var oauth2Client = this.setupOauth2Client(credentials);
 
 	  // Check if we have previously stored a token.
 		return q.nfcall(fs.readFile, this.tokenpath, 'UTF-8')
@@ -41,9 +37,25 @@ class GmailAPI {
 						return new Promise(function(resolve, reject) {
 									resolve(oauth2Client);
 							});
-					}, 
-					err => { return parent.getNewToken(oauth2Client);}
+					},
+					err => {
+						var toThrow =  new Error("No token exists");
+						toThrow.oauth2Client = oauth2Client;
+						throw toThrow;
+					}
 				);
+	}
+
+	/**
+		* returns an auth.OAuth2 Object
+		*/
+	setupOauth2Client(credentials) {
+		var clientSecret = credentials.installed.client_secret;
+	  var clientId = credentials.installed.client_id;
+	  var redirectUrl = credentials.installed.redirect_uris[0];
+	  var auth = new googleAuth();
+	  var oauth2Client = new auth.OAuth2(clientId, clientSecret, redirectUrl);
+		return oauth2Client;
 	}
 
 	/**
@@ -57,30 +69,41 @@ class GmailAPI {
 	getNewToken(oauth2Client) {
 
 		let parent = this;
+		var authUrl = this.generateOfflineAuthUrl(oauth2Client);
+
+		return this.promptForCode(authUrl)
+			.then(code => {
+				console.log(code);
+				return parent.retrieveAndStoreToken(code, oauth2Client);
+			});
+	}
+
+	generateOfflineAuthUrl(oauth2Client) {
 		var authUrl = oauth2Client.generateAuthUrl({
 			access_type: 'offline',
 			scope: this.scopes
 		});
+		return authUrl;
+	}
+
+	promptForCode(authUrl) {
 		console.log('Authorize this app by visiting this url: ', authUrl);
 		var prompt = readline.createInterface({
 			input: process.stdin,
 			output: process.stdout
 		});
 
-		var retrieveTokenPromise = new Promise(function(resolve, reject) {
+		var promptForCodePromise = new Promise(function(resolve, reject) {
 			prompt.question('Enter the code from that page here: ', function(code) {
+				prompt.close();
 				resolve(code);
 			});
 		})
-		.then(code => {
-			console.log(code);
-			prompt.close();
-			return parent.retrieveToken(code, oauth2Client);
-		});
-		return retrieveTokenPromise;
+
+		return promptForCodePromise;
 	}
 
-	retrieveToken(code, oauth2Client) {
+	retrieveAndStoreToken(code, oauth2Client) {
 		console.log('Entering retreive token');
 		var deferred = q.defer();
 		let parent = this;
@@ -121,12 +144,9 @@ class GmailAPI {
 	 * @param {google.auth.OAuth2} auth An authorized OAuth2 client.
 	 */
 	listLabels(auth) {
-	  var gmail = google.gmail('v1');
-		
-		return q.denodeify(gmail.users.labels.list)({
-	    auth: auth,
-	    userId: 'me',
-	  })
+
+
+		return this.getLabels(auth)
 		.then(response => {
 			var incomingMessage = response[1];
 			var labels = incomingMessage.body.labels;
@@ -142,10 +162,18 @@ class GmailAPI {
 	    }
 		});
 	}
-	
+
+	getLabels(auth) {
+		var gmail = google.gmail('v1');
+		return q.denodeify(gmail.users.labels.list)({
+	    auth: auth,
+	    userId: 'me',
+	  });
+	}
+
 	getProfile(auth) {
 		 var gmail = google.gmail('v1');
-		
+
 		return q.denodeify(gmail.users.getProfile)({
 	    auth: auth,
 	    userId: 'me',
